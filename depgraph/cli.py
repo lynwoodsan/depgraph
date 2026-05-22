@@ -4,56 +4,69 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
-from depgraph.graph import build_graph
+from depgraph.resolver import resolve_package
+from depgraph.graph import DependencyGraph, Node
 from depgraph.svg_renderer import render_svg
+from depgraph.exporter import export_json, export_dot
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="depgraph",
-        description="Visualize Python project dependency trees as interactive SVG graphs.",
+        description="Visualize Python project dependency trees.",
+    )
+    parser.add_argument("package", help="Root package name to inspect.")
+    parser.add_argument(
+        "--format",
+        choices=["svg", "json", "dot"],
+        default="svg",
+        help="Output format (default: svg).",
     )
     parser.add_argument(
-        "package",
-        help="Root package name to visualise.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
+        "--output", "-o",
         default=None,
-        help="Output SVG file path (default: <package>.svg).",
+        help="Write output to FILE instead of stdout.",
+        metavar="FILE",
     )
     parser.add_argument(
-        "--max-depth",
+        "--depth",
         type=int,
         default=None,
-        metavar="N",
         help="Maximum dependency depth to traverse.",
     )
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:  # noqa: D401
+    """Entry point for the depgraph CLI."""
     args = _parse_args(argv)
 
-    print(f"Resolving dependencies for '{args.package}'…")
-    graph = build_graph(args.package, max_depth=args.max_depth)
+    packages = resolve_package(args.package, max_depth=args.depth)
 
-    if not graph.all_nodes():
-        print(
-            f"Error: package '{args.package}' could not be resolved. "
-            "Is it installed in the current environment?",
-            file=sys.stderr,
-        )
-        return 1
+    graph = DependencyGraph()
+    for pkg in packages:
+        graph.add_node(Node(pkg.name))
+    for pkg in packages:
+        for dep in pkg.dependencies:
+            src = Node(pkg.name)
+            dst = Node(dep)
+            if dst in graph.nodes:
+                graph.add_edge(src, dst)
 
-    svg_content = render_svg(graph)
+    if args.format == "svg":
+        output = render_svg(graph)
+    elif args.format == "json":
+        output = export_json(graph)
+    else:
+        output = export_dot(graph)
 
-    output_path = Path(args.output) if args.output else Path(f"{args.package}.svg")
-    output_path.write_text(svg_content, encoding="utf-8")
-    print(f"SVG written to '{output_path}'.")
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(output)
+    else:
+        sys.stdout.write(output)
+
     return 0
 
 
