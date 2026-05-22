@@ -1,20 +1,16 @@
-"""Build a dependency graph from resolved packages."""
+"""Core graph data structures for dependency representation."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
-
-from depgraph.resolver import Package, resolve_package
+from typing import Dict, Iterable, List, Set
 
 
 @dataclass
 class Node:
-    """A node in the dependency graph representing a single package."""
+    """A single package node in the dependency graph."""
 
     name: str
-    version: str
-    extras: List[str] = field(default_factory=list)
 
     def __hash__(self) -> int:
         return hash(self.name.lower())
@@ -24,76 +20,76 @@ class Node:
             return NotImplemented
         return self.name.lower() == other.name.lower()
 
-    def __repr__(self) -> str:  # pragma: no cover
-        return f"Node({self.name!r}, {self.version!r})"
+    def __repr__(self) -> str:
+        return f"Node({self.name!r})"
 
 
-@dataclass
 class DependencyGraph:
     """Directed graph of package dependencies."""
 
-    nodes: Dict[str, Node] = field(default_factory=dict)
-    edges: Dict[str, List[str]] = field(default_factory=dict)
+    def __init__(self) -> None:
+        self._nodes: Dict[str, Node] = {}
+        self._edges: Dict[str, Set[str]] = {}
 
-    def add_node(self, node: Node) -> None:
-        key = node.name.lower()
-        if key not in self.nodes:
-            self.nodes[key] = node
-            self.edges[key] = []
+    def add_node(self, name: str) -> Node:
+        key = name.lower()
+        if key not in self._nodes:
+            self._nodes[key] = Node(name)
+            self._edges[key] = set()
+        return self._nodes[key]
 
     def add_edge(self, from_name: str, to_name: str) -> None:
-        key = from_name.lower()
-        if key not in self.edges:
-            self.edges[key] = []
-        if to_name.lower() not in self.edges[key]:
-            self.edges[key].append(to_name.lower())
+        self.add_node(from_name)
+        self.add_node(to_name)
+        self._edges[from_name.lower()].add(to_name.lower())
 
-    def get_dependencies(self, name: str) -> List[Node]:
+    @property
+    def nodes(self) -> List[Node]:
+        return list(self._nodes.values())
+
+    @property
+    def edges(self) -> List[tuple[str, str]]:
+        result = []
+        for src, targets in self._edges.items():
+            for tgt in targets:
+                result.append((self._nodes[src].name, self._nodes[tgt].name))
+        return result
+
+    def dependencies_of(self, name: str) -> List[str]:
         key = name.lower()
-        return [self.nodes[dep] for dep in self.edges.get(key, []) if dep in self.nodes]
+        if key not in self._edges:
+            return []
+        return [self._nodes[t].name for t in self._edges[key]]
 
-    def all_nodes(self) -> List[Node]:
-        return list(self.nodes.values())
+    def dependents_of(self, name: str) -> List[str]:
+        key = name.lower()
+        return [
+            self._nodes[src].name
+            for src, targets in self._edges.items()
+            if key in targets
+        ]
 
+    def roots(self) -> List[str]:
+        """Return nodes that are not depended upon by any other node."""
+        all_targets: Set[str] = set()
+        for targets in self._edges.values():
+            all_targets |= targets
+        return [
+            node.name
+            for key, node in self._nodes.items()
+            if key not in all_targets
+        ]
 
-def build_graph(
-    root_package: str,
-    max_depth: Optional[int] = None,
-    _visited: Optional[Set[str]] = None,
-    _depth: int = 0,
-) -> DependencyGraph:
-    """Recursively resolve dependencies and build a DependencyGraph."""
-    if _visited is None:
-        _visited = set()
+    def leaves(self) -> List[str]:
+        """Return nodes that have no outgoing dependencies."""
+        return [
+            node.name
+            for key, node in self._nodes.items()
+            if not self._edges.get(key)
+        ]
 
-    graph = DependencyGraph()
-    _build_recursive(root_package, graph, _visited, _depth, max_depth)
-    return graph
+    def __len__(self) -> int:
+        return len(self._nodes)
 
-
-def _build_recursive(
-    package_name: str,
-    graph: DependencyGraph,
-    visited: Set[str],
-    depth: int,
-    max_depth: Optional[int],
-) -> None:
-    key = package_name.lower()
-    if key in visited:
-        return
-    if max_depth is not None and depth > max_depth:
-        return
-
-    visited.add(key)
-    pkg: Optional[Package] = resolve_package(package_name)
-    if pkg is None:
-        return
-
-    node = Node(name=pkg.name, version=pkg.version)
-    graph.add_node(node)
-
-    for dep in pkg.dependencies:
-        graph.add_edge(pkg.name, dep.name)
-        _build_recursive(dep.name, graph, visited, depth + 1, max_depth)
-        dep_node = Node(name=dep.name, version=dep.version)
-        graph.add_node(dep_node)
+    def __contains__(self, name: str) -> bool:
+        return name.lower() in self._nodes
