@@ -42,3 +42,17 @@ def export_dot(graph: "DependencyGraph", graph_name: str = "dependencies") -> st
 
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def export_csv(graph: "DependencyGraph") -> str:
+    """Serialize a DependencyGraph to a CSV string.
+
+    Each row represents a directed edge in the format ``source,target``.
+    The output includes a header row and edges sorted alphabetically.
+    """
+    lines = ["source,target"]
+    for src, dst in sorted(
+        graph.edges, key=lambda e: (e[0].name.lower(), e[1].name.lower())
+    ):
+        lines.append(f"{src.name},{dst.name}")
+    return "\n".join(lines) + "\n"
