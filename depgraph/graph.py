@@ -1,26 +1,32 @@
-"""Core graph data structures for dependency representation."""
+"""Core graph data structures for depgraph."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Set
+from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 
-@dataclass
 class Node:
-    """A single package node in the dependency graph."""
+    """Represents a single package in the dependency graph."""
 
-    name: str
+    def __init__(self, name: str, version: str = "") -> None:
+        self.name = name
+        self.version = version
+
+    # ------------------------------------------------------------------
+    # Identity is case-insensitive on name (PEP 503 normalisation).
+    # ------------------------------------------------------------------
 
     def __hash__(self) -> int:
         return hash(self.name.lower())
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Node):
-            return NotImplemented
-        return self.name.lower() == other.name.lower()
+        if isinstance(other, Node):
+            return self.name.lower() == other.name.lower()
+        return NotImplemented
 
-    def __repr__(self) -> str:
+    def __repr__(self) -> str:  # pragma: no cover
+        if self.version:
+            return f"Node({self.name!r}, {self.version!r})"
         return f"Node({self.name!r})"
 
 
@@ -28,68 +34,61 @@ class DependencyGraph:
     """Directed graph of package dependencies."""
 
     def __init__(self) -> None:
-        self._nodes: Dict[str, Node] = {}
-        self._edges: Dict[str, Set[str]] = {}
+        self._nodes: Set[Node] = set()
+        # adjacency list: node -> set of direct dependencies
+        self._edges: Dict[Node, Set[Node]] = {}
 
-    def add_node(self, name: str) -> Node:
-        key = name.lower()
-        if key not in self._nodes:
-            self._nodes[key] = Node(name)
-            self._edges[key] = set()
-        return self._nodes[key]
+    # ------------------------------------------------------------------
+    # Mutation
+    # ------------------------------------------------------------------
 
-    def add_edge(self, from_name: str, to_name: str) -> None:
-        self.add_node(from_name)
-        self.add_node(to_name)
-        self._edges[from_name.lower()].add(to_name.lower())
+    def add_node(self, node: Node) -> None:
+        """Add *node* to the graph (idempotent)."""
+        if node not in self._nodes:
+            self._nodes.add(node)
+            self._edges.setdefault(node, set())
+
+    def add_edge(self, src: Node, dst: Node) -> None:
+        """Add a directed edge *src* -> *dst*, adding nodes if absent."""
+        self.add_node(src)
+        self.add_node(dst)
+        self._edges[src].add(dst)
+
+    # ------------------------------------------------------------------
+    # Queries
+    # ------------------------------------------------------------------
 
     @property
-    def nodes(self) -> List[Node]:
-        return list(self._nodes.values())
+    def nodes(self) -> Set[Node]:
+        return set(self._nodes)
 
     @property
-    def edges(self) -> List[tuple[str, str]]:
-        result = []
-        for src, targets in self._edges.items():
-            for tgt in targets:
-                result.append((self._nodes[src].name, self._nodes[tgt].name))
+    def edges(self) -> List[Tuple[Node, Node]]:
+        result: List[Tuple[Node, Node]] = []
+        for src, dsts in self._edges.items():
+            for dst in dsts:
+                result.append((src, dst))
         return result
 
-    def dependencies_of(self, name: str) -> List[str]:
-        key = name.lower()
-        if key not in self._edges:
-            return []
-        return [self._nodes[t].name for t in self._edges[key]]
+    def neighbors(self, node: Node) -> Set[Node]:
+        """Return the direct successors of *node*."""
+        return set(self._edges.get(node, set()))
 
-    def dependents_of(self, name: str) -> List[str]:
-        key = name.lower()
-        return [
-            self._nodes[src].name
-            for src, targets in self._edges.items()
-            if key in targets
-        ]
+    def has_node(self, node: Node) -> bool:
+        return node in self._nodes
 
-    def roots(self) -> List[str]:
-        """Return nodes that are not depended upon by any other node."""
-        all_targets: Set[str] = set()
-        for targets in self._edges.values():
-            all_targets |= targets
-        return [
-            node.name
-            for key, node in self._nodes.items()
-            if key not in all_targets
-        ]
+    def has_edge(self, src: Node, dst: Node) -> bool:
+        return dst in self._edges.get(src, set())
 
-    def leaves(self) -> List[str]:
-        """Return nodes that have no outgoing dependencies."""
-        return [
-            node.name
-            for key, node in self._nodes.items()
-            if not self._edges.get(key)
-        ]
+    # ------------------------------------------------------------------
+    # Dunder helpers
+    # ------------------------------------------------------------------
 
     def __len__(self) -> int:
         return len(self._nodes)
 
-    def __contains__(self, name: str) -> bool:
-        return name.lower() in self._nodes
+    def __iter__(self) -> Iterator[Node]:
+        return iter(self._nodes)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"DependencyGraph(nodes={len(self._nodes)}, edges={len(self.edges)})"
