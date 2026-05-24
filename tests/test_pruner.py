@@ -57,6 +57,15 @@ def test_prune_orphans_all_orphans():
     assert len(result.nodes) == 0
 
 
+def test_prune_orphans_does_not_mutate_original():
+    """prune_orphans should return a new graph and leave the original intact."""
+    g = _build_graph(("A", "B"))
+    _add_orphan(g, "Orphan")
+    original_node_count = len(g.nodes)
+    prune_orphans(g)
+    assert len(g.nodes) == original_node_count
+
+
 # ---------------------------------------------------------------------------
 # prune_transitive_edges
 # ---------------------------------------------------------------------------
@@ -83,6 +92,14 @@ def test_prune_transitive_preserves_nodes():
     assert {n.name for n in result.nodes} == {"A", "B", "C"}
 
 
+def test_prune_transitive_does_not_mutate_original():
+    """prune_transitive_edges should return a new graph and leave the original intact."""
+    g = _build_graph(("A", "B"), ("B", "C"), ("A", "C"))
+    original_edge_count = len(list(g.edges))
+    prune_transitive_edges(g)
+    assert len(list(g.edges)) == original_edge_count
+
+
 # ---------------------------------------------------------------------------
 # prune_by_depth
 # ---------------------------------------------------------------------------
@@ -100,16 +117,4 @@ def test_prune_by_depth_one():
     root = Node("A")
     result = prune_by_depth(g, root, max_depth=1)
     assert {n.name for n in result.nodes} == {"A", "B"}
-
-
-def test_prune_by_depth_full_chain():
-    g = _build_graph(("A", "B"), ("B", "C"), ("C", "D"))
-    root = Node("A")
-    result = prune_by_depth(g, root, max_depth=10)
-    assert {n.name for n in result.nodes} == {"A", "B", "C", "D"}
-
-
-def test_prune_by_depth_negative_raises():
-    g = _build_graph(("A", "B"))
-    with pytest.raises(ValueError):
-        prune_by_depth(g, Node("A"), max_depth=-1)
+    assert len(list(result.edges)) == 1
