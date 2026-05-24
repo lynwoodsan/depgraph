@@ -1,6 +1,7 @@
 """Extract a subgraph centred on a node, using ancestor/descendant traversal."""
 
 from __future__ import annotations
+from collections import deque
 from depgraph.graph import Graph, Node
 from depgraph.ancestors import get_neighbourhood, _find
 
@@ -40,8 +41,16 @@ def extract_subgraph(graph: Graph, node_name: str, depth: int = -1) -> Graph:
 
 
 def _bfs_limited(graph: Graph, start: str, max_depth: int) -> set[str]:
-    """BFS in both directions up to *max_depth* hops from *start*."""
-    # forward edges
+    """BFS in both directions up to *max_depth* hops from *start*.
+
+    Parameters
+    ----------
+    graph:     Source graph to traverse.
+    start:     Name of the starting node (case-insensitive).
+    max_depth: Maximum number of hops to follow in either direction.
+                A value of ``0`` returns only the start node itself.
+    """
+    # Build forward and reverse adjacency maps keyed by lower-case node name
     fwd: dict[str, set[str]] = {n.name.lower(): set() for n in graph.nodes}
     rev: dict[str, set[str]] = {n.name.lower(): set() for n in graph.nodes}
     for src, dst in graph.edges:
@@ -49,9 +58,9 @@ def _bfs_limited(graph: Graph, start: str, max_depth: int) -> set[str]:
         rev[dst.name.lower()].add(src.name.lower())
 
     visited: dict[str, int] = {start.lower(): 0}
-    queue = [start.lower()]
+    queue: deque[str] = deque([start.lower()])
     while queue:
-        current = queue.pop(0)
+        current = queue.popleft()
         dist = visited[current]
         if dist >= max_depth:
             continue
